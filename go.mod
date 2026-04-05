@@ -1,4 +1,4 @@
-module github.com/MrRostron/rtx-gpu-usage
+module github.com/MrRostron/rtx-mon
 
 go 1.26.1
 

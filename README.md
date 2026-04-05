@@ -1,4 +1,4 @@
-# RTX GPU Usage
+# RTX-MON
 
 A clean, lightweight, and modern **Terminal User Interface (TUI)** for real-time NVIDIA RTX GPU monitoring on Linux.
 
@@ -36,25 +36,25 @@ Built with **Go**, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) a
 ### Option 1: Install directly with Go (Recommended)
 
 ```bash
-go install github.com/MrRostron/rtx-gpu-usage@latest
+go install github.com/MrRostron/rtx-mon@latest
 ```
 Then run :
 ```bash
-rtx-gpu-usage
+rtx-mon
 ```
 
 ### Option 2: Build from source
 ```bash
-git clone https://github.com/MrRostron/rtx-gpu-usage.git
-cd rtx-gpu-usage
-go build -o rtx-gpu-usage .
-./rtx-gpu-usage
+git clone https://github.com/MrRostron/rtx-mon.git
+cd rtx-mon
+go build -o rtx-mon .
+./rtx-mon
 ```
 
 ## Usage
 Simply run the binary:
 ```bash
-rtx-gpu-usage
+rtx-mon
 ```
 ## Roadmap
 

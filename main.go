@@ -335,7 +335,7 @@ func (m model) View() tea.View {
 	))
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		titleStyle.Width(m.width).AlignHorizontal(lipgloss.Center).Render(" NVIDIA GPU Monitor "),
+		titleStyle.Width(m.width).AlignHorizontal(lipgloss.Center).Render(" RTX Monitor "),
 		gpuNameStyle.Render("  "+m.name),
 		"",
 
