@@ -140,7 +140,7 @@ func setFanSpeed(percent int) error {
 	}
 
 	applied := false
-	for fan := 0; fan < 3; fan++ {
+	for fan := range 3{
 		if ret := device.SetFanSpeed_v2(fan, percent); ret == nvml.SUCCESS {
 			applied = true
 		}
@@ -158,7 +158,7 @@ func restoreAutoFan() error {
 	if !nvmlInitialized {
 		return fmt.Errorf("NVML not initialized")
 	}
-	for fan := 0; fan < 3; fan++ {
+	for fan := range 3{
 		_ = device.SetDefaultFanSpeed_v2(fan)
 	}
 	return nil
