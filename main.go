@@ -25,10 +25,10 @@ type model struct {
 	fanManual  bool
 	targetFan  float64
 
-	width      int
-	height     int
-	isDark     bool
-	lastError  string
+	width     int
+	height    int
+	isDark    bool
+	lastError string
 
 	showFanModal bool
 	isDragging   bool
@@ -65,9 +65,9 @@ var (
 )
 
 func getStyles(m model) struct {
-	card  lipgloss.Style
-	label lipgloss.Style
-	value lipgloss.Style
+	card   lipgloss.Style
+	label  lipgloss.Style
+	value  lipgloss.Style
 	accent color.Color
 } {
 	lightDark := lipgloss.LightDark(m.isDark)
@@ -91,9 +91,9 @@ func getStyles(m model) struct {
 	accent := lightDark(lipgloss.Color("#7D56F4"), lipgloss.Color("#A78BFA"))
 
 	return struct {
-		card  lipgloss.Style
-		label lipgloss.Style
-		value lipgloss.Style
+		card   lipgloss.Style
+		label  lipgloss.Style
+		value  lipgloss.Style
 		accent color.Color
 	}{card, label, value, accent}
 }
@@ -126,6 +126,7 @@ func initNVML() error {
 	return nil
 }
 
+// Updated: controls ALL fans (0, 1, 2) so all 3 fans on your GPU respond
 func setFanSpeed(percent int) error {
 	if !nvmlInitialized {
 		return fmt.Errorf("NVML not initialized")
@@ -138,20 +139,27 @@ func setFanSpeed(percent int) error {
 		percent = 100
 	}
 
-	ret := device.SetFanSpeed_v2(0, percent)
-	if ret != nvml.SUCCESS {
-		return fmt.Errorf("%s", nvml.ErrorString(ret))
+	applied := false
+	for fan := 0; fan < 3; fan++ {
+		if ret := device.SetFanSpeed_v2(fan, percent); ret == nvml.SUCCESS {
+			applied = true
+		}
+		// ignore errors for non-existent fan indices
+	}
+
+	if !applied {
+		return fmt.Errorf("failed to set any fan")
 	}
 	return nil
 }
 
+// Updated: restores auto mode on ALL fans
 func restoreAutoFan() error {
 	if !nvmlInitialized {
 		return fmt.Errorf("NVML not initialized")
 	}
-	ret := device.SetDefaultFanSpeed_v2(0)
-	if ret != nvml.SUCCESS {
-		return fmt.Errorf("%s", nvml.ErrorString(ret))
+	for fan := 0; fan < 3; fan++ {
+		_ = device.SetDefaultFanSpeed_v2(fan)
 	}
 	return nil
 }
@@ -181,6 +189,7 @@ func getAllMetrics() (model, error) {
 		m.memTotal = float64(mem.Total) / 1024 / 1024
 		m.memUsed = float64(mem.Used) / 1024 / 1024
 	}
+	// Use fan 0 for display (standard)
 	if fan, ret := device.GetFanSpeed(); ret == nvml.SUCCESS {
 		m.fanSpeed = float64(fan)
 	}
@@ -364,13 +373,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// New helper for clearer Wayland errors
 func handleFanError(m *model, err error) {
 	errStr := err.Error()
 	m.lastError = "Fan control failed: " + errStr
 
 	if strings.Contains(errStr, "Insufficient") || strings.Contains(errStr, "Permission") || strings.Contains(errStr, "Not Supported") {
-		m.lastError = "Fan control requires root on Wayland.\n\nRun with: sudo ./rtx-mon\n\n(or build and add NOPASSWD in sudoers for convenience)"
+		m.lastError = "Fan control requires root on Wayland.\n\nRun with: sudo ./rtx-mon"
 	}
 }
 
@@ -391,7 +399,7 @@ func progressBar(width int, percent float64, accent color.Color) string {
 		col = lipgloss.Color("#EAB308")
 	}
 
-	return lipgloss.NewStyle().Foreground(col).Render("[" + bar + "] ") +
+	return lipgloss.NewStyle().Foreground(col).Render("["+bar+"] ") +
 		lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("%5.1f%%", percent))
 }
 
@@ -421,8 +429,6 @@ func (m model) View() tea.View {
 	if m.memTotal > 0 {
 		memP = (m.memUsed / m.memTotal) * 100
 	}
-
-	// ... (the rest of the View function stays exactly the same as before)
 
 	tempCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Temperature"), statusDot(tempP)),
