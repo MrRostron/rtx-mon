@@ -1,20 +1,24 @@
 # RTX GPU Usage
 
-A clean, real-time **Terminal User Interface (TUI)** for monitoring NVIDIA RTX GPU metrics on Linux.
+A clean, lightweight, and modern **Terminal User Interface (TUI)** for real-time NVIDIA RTX GPU monitoring on Linux.
 
-Built with Go, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) and [Lipgloss v2](https://github.com/charmbracelet/lipgloss).
+Built with **Go**, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) and [Lipgloss v2](https://github.com/charmbracelet/lipgloss), using official **NVIDIA NVML** bindings for fast and reliable data.
+
+<img width="1092" height="1568" alt="2026-04-05-161041_hyprshot" src="https://github.com/user-attachments/assets/fb17e947-4ec7-4e7e-8525-e6ffcc020386" />
 
 ## Features
 
-- Real-time updates every second
-- GPU Name
-- Temperature
-- Power Draw + Power Limit
-- GPU & Memory Utilization
-- Fan Speed
-- Clean, modern look with automatic dark/light mode detection
-- Simple keyboard controls (`q` to quit)
-- Lightweight and dependency-minimal
+- Real-time GPU metrics updated every second
+- Clean card-based UI with progress bars and status indicators
+- Automatic dark/light mode detection
+- Shows:
+  - GPU Name
+  - Temperature (°C) with color-coded status
+  - Power Draw + Power Limit (W)
+  - GPU Utilization (%)
+  - Memory Usage (GB)
+  - Fan Speed (%)
+- Very lightweight and responsive
 
 ## Screenshots
 
@@ -23,10 +27,10 @@ Built with Go, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) and [
 
 ## Requirements
 
-- Linux
-- NVIDIA GPU with `nvidia-smi` installed and accessible
-- Go 1.23+ (to build or install)
-
+- Linux (tested on Arch Linux)
+- NVIDIA GPU with proprietary drivers installed (`nvidia-utils`)
+- `nvidia-smi` should work (confirms drivers are properly installed)
+  
 ## Installation
 
 ### Option 1: Install directly with Go (Recommended)
@@ -52,3 +56,31 @@ Simply run the binary:
 ```bash
 rtx-gpu-usage
 ```
+## Roadmap
+
+### Planned Features
+
+- [ ] **Multi-GPU support** — Switch between or display multiple GPUs
+- [ ] **Command-line flags** — `--interval`, `--gpu <index>`, `--help`, `--version`
+- [ ] **Configurable refresh rate** — Allow users to set update speed
+- [ ] **Sparkline graphs** — Small inline graphs showing utilization and temperature trends over time
+- [ ] **Per-process GPU usage** — Show which processes are using the GPU (memory + compute)
+- [ ] **Help screen** — Press `?` to show all keyboard shortcuts
+- [ ] **Better memory display** — Option for GB or MB
+- [ ] **Fan curve / manual fan control** (advanced)
+- [ ] **Export metrics** — Log data to CSV/JSON for analysis
+
+### Future Ideas
+
+- Compact "mini-mode" or status bar overlay
+- Integration with `tmux`, `waybar`, or desktop status bars
+- Color themes / custom styling
+- Support for additional metrics (clock speeds, encoder/decoder usage, energy consumption)
+
+### Done ✓
+
+- Initial TUI with Bubble Tea + Lipgloss
+- NVML integration (fast & reliable GPU data)
+- Automatic dark/light mode
+- Progress bars with color coding
+- Graceful error handling
