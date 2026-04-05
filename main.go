@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"image/color"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
 type model struct {
@@ -30,6 +29,10 @@ type model struct {
 }
 
 var (
+	// NVML globals
+	nvmlInitialized bool
+	device          nvml.Device
+
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FAFAFA")).
@@ -68,8 +71,8 @@ func getStyles(m model) struct {
 
 	label := lipgloss.NewStyle().
 		Foreground(lightDark(lipgloss.Color("#BBBBBB"), lipgloss.Color("#999999"))).
-		Width(12).            // More compact
-		Align(lipgloss.Right) // Right-aligned for cleaner look
+		Width(12).
+		Align(lipgloss.Right)
 
 	value := lipgloss.NewStyle().
 		Foreground(lightDark(lipgloss.Color("#FFFFFF"), lipgloss.Color("#EEEEEE"))).
@@ -86,6 +89,13 @@ func getStyles(m model) struct {
 }
 
 func main() {
+	// Clean shutdown of NVML
+	defer func() {
+		if nvmlInitialized {
+			nvml.Shutdown()
+		}
+	}()
+
 	p := tea.NewProgram(initialModel())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -93,67 +103,98 @@ func main() {
 	}
 }
 
+func initNVML() error {
+	ret := nvml.Init()
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("failed to initialize NVML: %s", nvml.ErrorString(ret))
+	}
+
+	// Get first GPU (index 0). Easy to extend later for multi-GPU.
+	dev, ret := nvml.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		nvml.Shutdown()
+		return fmt.Errorf("failed to get GPU 0: %s", nvml.ErrorString(ret))
+	}
+
+	device = dev
+	nvmlInitialized = true
+	return nil
+}
+
+func getAllMetrics() (model, error) {
+	if !nvmlInitialized {
+		return model{}, fmt.Errorf("NVML not initialized")
+	}
+
+	m := model{}
+
+	// Name
+	if name, ret := device.GetName(); ret == nvml.SUCCESS {
+		m.name = name
+	} else {
+		m.name = "Unknown GPU"
+	}
+
+	// Temperature
+	if temp, ret := device.GetTemperature(nvml.TEMPERATURE_GPU); ret == nvml.SUCCESS {
+		m.temp = float64(temp)
+	}
+
+	// Power draw (mW → W)
+	if power, ret := device.GetPowerUsage(); ret == nvml.SUCCESS {
+		m.power = float64(power) / 1000.0
+	}
+
+	// Power limit (mW → W)
+	if limit, ret := device.GetPowerManagementLimit(); ret == nvml.SUCCESS {
+		m.powerLimit = float64(limit) / 1000.0
+	}
+
+	// Utilization
+	if util, ret := device.GetUtilizationRates(); ret == nvml.SUCCESS {
+		m.util = float64(util.Gpu)
+	}
+
+	// Memory (bytes → MB)
+	if memInfo, ret := device.GetMemoryInfo(); ret == nvml.SUCCESS {
+		m.memTotal = float64(memInfo.Total) / 1024 / 1024
+		m.memUsed = float64(memInfo.Used) / 1024 / 1024
+	}
+
+	// Fan speed (%)
+	if fan, ret := device.GetFanSpeed(); ret == nvml.SUCCESS {
+		m.fanSpeed = float64(fan)
+	}
+
+	return m, nil
+}
+
 func initialModel() model {
-	name, _ := getGPUName()
-	temp, _ := getGPUTemp()
-	power, _ := getGPUPower()
-	powerLimit, _ := getGPUPowerLimit()
-	util, _ := getGPUUtil()
-	memTotal, _ := getGPUMemTotal()
-	memUsed, _ := getGPUMemUsed()
-	fan, _ := getGPUFanSpeed()
+	var lastErr string
+	if err := initNVML(); err != nil {
+		lastErr = "NVML init failed: " + err.Error()
+		fmt.Println(lastErr) // fallback console message
+	}
+
+	data, _ := getAllMetrics() // best effort on startup
 
 	hasDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 
 	return model{
-		name:       name,
-		temp:       temp,
+		name:       data.name,
+		temp:       data.temp,
 		maxTemp:    100,
-		power:      power,
-		powerLimit: powerLimit,
-		util:       util,
-		memTotal:   memTotal,
-		memUsed:    memUsed,
-		fanSpeed:   fan,
+		power:      data.power,
+		powerLimit: data.powerLimit,
+		util:       data.util,
+		memTotal:   data.memTotal,
+		memUsed:    data.memUsed,
+		fanSpeed:   data.fanSpeed,
 		width:      90,
 		isDark:     hasDark,
-		lastError:  "",
+		lastError:  lastErr,
 	}
 }
-
-// ====================== GPU Fetchers ======================
-
-func getGPUName() (string, error) {
-	out, err := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits").Output()
-	if err != nil {
-		return "Unknown GPU", fmt.Errorf("failed to get gpu name: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func queryGPU(field string) (float64, error) {
-	out, err := exec.Command("nvidia-smi", "--query-gpu="+field, "--format=csv,noheader,nounits").Output()
-	if err != nil {
-		return 0, fmt.Errorf("nvidia-smi query failed for %s: %w", field, err)
-	}
-	s := strings.TrimSpace(string(out))
-	if s == "" {
-		return 0, fmt.Errorf("empty response for field %s", field)
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse %s value '%s': %w", field, s, err)
-	}
-	return f, nil
-}
-
-func getGPUTemp() (float64, error)       { return queryGPU("temperature.gpu") }
-func getGPUPower() (float64, error)      { return queryGPU("power.draw") }
-func getGPUPowerLimit() (float64, error) { return queryGPU("power.limit") }
-func getGPUUtil() (float64, error)       { return queryGPU("utilization.gpu") }
-func getGPUMemTotal() (float64, error)   { return queryGPU("memory.total") }
-func getGPUMemUsed() (float64, error)    { return queryGPU("memory.used") }
-func getGPUFanSpeed() (float64, error)   { return queryGPU("fan.speed") }
 
 // ====================== Bubble Tea ======================
 
@@ -179,55 +220,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case updateMsg:
-		var hasError bool
-
-		if v, err := getGPUTemp(); err == nil {
-			m.temp = v
-		} else {
-			hasError = true
-		}
-
-		if v, err := getGPUPower(); err == nil {
-			m.power = v
-		} else {
-			hasError = true
-		}
-
-		if v, err := getGPUPowerLimit(); err == nil && v > 0 {
-			m.powerLimit = v
-		} else if m.powerLimit == 0 {
-			m.powerLimit = 400
-			hasError = true
-		}
-
-		if v, err := getGPUUtil(); err == nil {
-			m.util = v
-		} else {
-			hasError = true
-		}
-
-		if v, err := getGPUMemUsed(); err == nil {
-			m.memUsed = v
-		} else {
-			hasError = true
-		}
-
-		if v, err := getGPUMemTotal(); err == nil {
-			m.memTotal = v
-		} else {
-			hasError = true
-		}
-
-		if v, err := getGPUFanSpeed(); err == nil {
-			m.fanSpeed = v
-		} else {
-			hasError = true
-		}
-
-		if hasError {
-			m.lastError = "Warning: Could not read some GPU data (nvidia-smi failed)"
-		} else {
+		if newData, err := getAllMetrics(); err == nil {
+			m.name = newData.name
+			m.temp = newData.temp
+			m.power = newData.power
+			m.powerLimit = newData.powerLimit
+			m.util = newData.util
+			m.memTotal = newData.memTotal
+			m.memUsed = newData.memUsed
+			m.fanSpeed = newData.fanSpeed
 			m.lastError = ""
+		} else {
+			m.lastError = "Warning: Failed to read GPU data - " + err.Error()
 		}
 
 		return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return updateMsg{} })
@@ -293,7 +297,6 @@ func (m model) View() tea.View {
 		totalGB = 1
 	}
 
-	// Optimized bar width for compact full-width cards
 	barWidth := m.width - 18
 	if barWidth < 30 {
 		barWidth = 30
@@ -301,7 +304,6 @@ func (m model) View() tea.View {
 
 	styles := getStyles(m)
 
-	// Cards using full width style
 	tempCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Temperature"), statusDot(tempPercent)),
 		styles.value.Render(fmt.Sprintf("%.0f °C", m.temp)),
@@ -332,7 +334,6 @@ func (m model) View() tea.View {
 		progressBar(barWidth, fanPercent, styles.accent),
 	))
 
-	// Final layout - all cards stacked vertically
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Width(m.width).AlignHorizontal(lipgloss.Center).Render(" NVIDIA GPU Monitor "),
 		gpuNameStyle.Render("  "+m.name),
