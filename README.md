@@ -18,7 +18,8 @@ Built with Go, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) and [
 
 ## Screenshots
 
-*(Add a screenshot here later — highly recommended! You can run the program and take a terminal screenshot)*
+<img width="3834" height="2155" alt="2026-04-05-161806_hyprshot" src="https://github.com/user-attachments/assets/55c49821-54f7-4698-8ca7-99647eaf5d8a" />
+
 
 ## Requirements
 
