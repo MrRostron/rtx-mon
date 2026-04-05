@@ -21,15 +21,20 @@ type model struct {
 	util       float64
 	memTotal   float64
 	memUsed    float64
-	fanSpeed   float64 // %
+	fanSpeed   float64
+	fanManual  bool
+	targetFan  float64
+
 	width      int
 	height     int
 	isDark     bool
 	lastError  string
+
+	showFanModal bool
+	isDragging   bool
 }
 
 var (
-	// NVML globals
 	nvmlInitialized bool
 	device          nvml.Device
 
@@ -51,13 +56,18 @@ var (
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#EF4444")).
 			Bold(true)
+
+	modalStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(2, 4).
+			Width(72)
 )
 
-// Dynamic styles based on theme
 func getStyles(m model) struct {
-	card   lipgloss.Style
-	label  lipgloss.Style
-	value  lipgloss.Style
+	card  lipgloss.Style
+	label lipgloss.Style
+	value lipgloss.Style
 	accent color.Color
 } {
 	lightDark := lipgloss.LightDark(m.isDark)
@@ -71,7 +81,7 @@ func getStyles(m model) struct {
 
 	label := lipgloss.NewStyle().
 		Foreground(lightDark(lipgloss.Color("#BBBBBB"), lipgloss.Color("#999999"))).
-		Width(12).
+		Width(14).
 		Align(lipgloss.Right)
 
 	value := lipgloss.NewStyle().
@@ -81,15 +91,14 @@ func getStyles(m model) struct {
 	accent := lightDark(lipgloss.Color("#7D56F4"), lipgloss.Color("#A78BFA"))
 
 	return struct {
-		card   lipgloss.Style
-		label  lipgloss.Style
-		value  lipgloss.Style
+		card  lipgloss.Style
+		label lipgloss.Style
+		value lipgloss.Style
 		accent color.Color
 	}{card, label, value, accent}
 }
 
 func main() {
-	// Clean shutdown of NVML
 	defer func() {
 		if nvmlInitialized {
 			nvml.Shutdown()
@@ -104,20 +113,46 @@ func main() {
 }
 
 func initNVML() error {
-	ret := nvml.Init()
-	if ret != nvml.SUCCESS {
-		return fmt.Errorf("failed to initialize NVML: %s", nvml.ErrorString(ret))
+	if ret := nvml.Init(); ret != nvml.SUCCESS {
+		return fmt.Errorf("NVML init: %s", nvml.ErrorString(ret))
 	}
-
-	// Get first GPU (index 0). Easy to extend later for multi-GPU.
 	dev, ret := nvml.DeviceGetHandleByIndex(0)
 	if ret != nvml.SUCCESS {
 		nvml.Shutdown()
-		return fmt.Errorf("failed to get GPU 0: %s", nvml.ErrorString(ret))
+		return fmt.Errorf("get GPU 0: %s", nvml.ErrorString(ret))
 	}
-
 	device = dev
 	nvmlInitialized = true
+	return nil
+}
+
+func setFanSpeed(percent int) error {
+	if !nvmlInitialized {
+		return fmt.Errorf("NVML not initialized")
+	}
+
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+
+	ret := device.SetFanSpeed_v2(0, percent)
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("%s", nvml.ErrorString(ret))
+	}
+	return nil
+}
+
+func restoreAutoFan() error {
+	if !nvmlInitialized {
+		return fmt.Errorf("NVML not initialized")
+	}
+	ret := device.SetDefaultFanSpeed_v2(0)
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("%s", nvml.ErrorString(ret))
+	}
 	return nil
 }
 
@@ -125,43 +160,27 @@ func getAllMetrics() (model, error) {
 	if !nvmlInitialized {
 		return model{}, fmt.Errorf("NVML not initialized")
 	}
-
 	m := model{}
 
-	// Name
 	if name, ret := device.GetName(); ret == nvml.SUCCESS {
 		m.name = name
-	} else {
-		m.name = "Unknown GPU"
 	}
-
-	// Temperature
 	if temp, ret := device.GetTemperature(nvml.TEMPERATURE_GPU); ret == nvml.SUCCESS {
 		m.temp = float64(temp)
 	}
-
-	// Power draw (mW → W)
 	if power, ret := device.GetPowerUsage(); ret == nvml.SUCCESS {
-		m.power = float64(power) / 1000.0
+		m.power = float64(power) / 1000
 	}
-
-	// Power limit (mW → W)
 	if limit, ret := device.GetPowerManagementLimit(); ret == nvml.SUCCESS {
-		m.powerLimit = float64(limit) / 1000.0
+		m.powerLimit = float64(limit) / 1000
 	}
-
-	// Utilization
 	if util, ret := device.GetUtilizationRates(); ret == nvml.SUCCESS {
 		m.util = float64(util.Gpu)
 	}
-
-	// Memory (bytes → MB)
-	if memInfo, ret := device.GetMemoryInfo(); ret == nvml.SUCCESS {
-		m.memTotal = float64(memInfo.Total) / 1024 / 1024
-		m.memUsed = float64(memInfo.Used) / 1024 / 1024
+	if mem, ret := device.GetMemoryInfo(); ret == nvml.SUCCESS {
+		m.memTotal = float64(mem.Total) / 1024 / 1024
+		m.memUsed = float64(mem.Used) / 1024 / 1024
 	}
-
-	// Fan speed (%)
 	if fan, ret := device.GetFanSpeed(); ret == nvml.SUCCESS {
 		m.fanSpeed = float64(fan)
 	}
@@ -172,13 +191,11 @@ func getAllMetrics() (model, error) {
 func initialModel() model {
 	var lastErr string
 	if err := initNVML(); err != nil {
-		lastErr = "NVML init failed: " + err.Error()
-		fmt.Println(lastErr) // fallback console message
+		lastErr = err.Error()
+		fmt.Println("Warning:", lastErr)
 	}
 
-	data, _ := getAllMetrics() // best effort on startup
-
-	hasDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	data, _ := getAllMetrics()
 
 	return model{
 		name:       data.name,
@@ -190,13 +207,13 @@ func initialModel() model {
 		memTotal:   data.memTotal,
 		memUsed:    data.memUsed,
 		fanSpeed:   data.fanSpeed,
+		targetFan:  data.fanSpeed,
+		fanManual:  false,
 		width:      90,
-		isDark:     hasDark,
+		isDark:     lipgloss.HasDarkBackground(os.Stdin, os.Stdout),
 		lastError:  lastErr,
 	}
 }
-
-// ====================== Bubble Tea ======================
 
 type updateMsg struct{}
 
@@ -206,18 +223,122 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "Q":
+			if m.showFanModal {
+				m.showFanModal = false
+				return m, nil
+			}
 			return m, tea.Quit
+
+		case "f", "F":
+			m.showFanModal = true
+			m.fanManual = true
+			if m.targetFan == 0 {
+				m.targetFan = m.fanSpeed
+			}
+
+		case "a", "A":
+			if m.showFanModal {
+				if err := restoreAutoFan(); err != nil {
+					m.lastError = "Restore auto failed: " + err.Error()
+				} else {
+					m.fanManual = false
+					m.showFanModal = false
+					m.lastError = "Fan restored to automatic"
+				}
+			}
+
+		case "+", "=":
+			if m.fanManual {
+				m.targetFan = min(100, m.targetFan+5)
+				_ = setFanSpeed(int(m.targetFan))
+			}
+
+		case "-":
+			if m.fanManual {
+				m.targetFan = max(0, m.targetFan-5)
+				_ = setFanSpeed(int(m.targetFan))
+			}
+
+		case "left", "h":
+			if m.fanManual && m.showFanModal {
+				m.targetFan = max(0, m.targetFan-2)
+				_ = setFanSpeed(int(m.targetFan))
+			}
+
+		case "right", "l":
+			if m.fanManual && m.showFanModal {
+				m.targetFan = min(100, m.targetFan+2)
+				_ = setFanSpeed(int(m.targetFan))
+			}
+
+		case "esc":
+			if m.showFanModal {
+				m.showFanModal = false
+			}
 		}
 
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		if m.width > 110 {
-			m.width = 110
+	case tea.MouseClickMsg:
+		if m.showFanModal {
+			if msg.Button == tea.MouseLeft {
+				if msg.Y >= 10 && msg.Y <= 12 {
+					if err := restoreAutoFan(); err != nil {
+						m.lastError = err.Error()
+					} else {
+						m.fanManual = false
+						m.showFanModal = false
+						m.lastError = "Fan restored to automatic"
+					}
+					return m, nil
+				}
+
+				barStartY := 7
+				if msg.Y == barStartY || msg.Y == barStartY+1 {
+					barWidth := 60
+					relativeX := msg.X - 10
+					if relativeX < 0 {
+						relativeX = 0
+					}
+					percent := float64(relativeX) / float64(barWidth) * 100
+					percent = max(0, min(100, percent))
+
+					m.targetFan = percent
+					m.fanManual = true
+					if err := setFanSpeed(int(percent)); err != nil {
+						handleFanError(&m, err)
+					}
+				}
+			}
+			return m, nil
 		}
-		m.height = msg.Height
+
+		if msg.Button == tea.MouseLeft {
+			m.showFanModal = true
+			m.fanManual = true
+			if m.targetFan == 0 {
+				m.targetFan = m.fanSpeed
+			}
+		}
+
+	case tea.MouseMotionMsg:
+		if m.showFanModal && m.isDragging && m.fanManual {
+			barWidth := 60
+			relativeX := msg.X - 10
+			if relativeX < 0 {
+				relativeX = 0
+			}
+			percent := float64(relativeX) / float64(barWidth) * 100
+			percent = max(0, min(100, percent))
+
+			m.targetFan = percent
+			_ = setFanSpeed(int(percent))
+		}
+
+	case tea.MouseReleaseMsg:
+		m.isDragging = false
 
 	case updateMsg:
 		if newData, err := getAllMetrics(); err == nil {
@@ -229,17 +350,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.memTotal = newData.memTotal
 			m.memUsed = newData.memUsed
 			m.fanSpeed = newData.fanSpeed
-			m.lastError = ""
 		} else {
-			m.lastError = "Warning: Failed to read GPU data - " + err.Error()
+			m.lastError = "Failed to read GPU data"
+		}
+
+		if m.fanManual {
+			_ = setFanSpeed(int(m.targetFan))
 		}
 
 		return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return updateMsg{} })
 	}
+
 	return m, nil
 }
 
-// ====================== UI Helpers ======================
+// New helper for clearer Wayland errors
+func handleFanError(m *model, err error) {
+	errStr := err.Error()
+	m.lastError = "Fan control failed: " + errStr
+
+	if strings.Contains(errStr, "Insufficient") || strings.Contains(errStr, "Permission") || strings.Contains(errStr, "Not Supported") {
+		m.lastError = "Fan control requires root on Wayland.\n\nRun with: sudo ./rtx-mon\n\n(or build and add NOPASSWD in sudoers for convenience)"
+	}
+}
 
 func progressBar(width int, percent float64, accent color.Color) string {
 	if percent > 100 {
@@ -248,103 +381,89 @@ func progressBar(width int, percent float64, accent color.Color) string {
 	if percent < 0 {
 		percent = 0
 	}
-
 	filled := int(float64(width) * percent / 100)
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
 
-	barColor := accent
-	if percent > 80 {
-		barColor = lipgloss.Color("#EF4444")
-	} else if percent > 60 {
-		barColor = lipgloss.Color("#EAB308")
-	}
-
-	barStyle := lipgloss.NewStyle().Foreground(barColor)
-	percentStyle := lipgloss.NewStyle().Foreground(barColor).Bold(true)
-
-	return barStyle.Render("["+bar+"]") + " " + percentStyle.Render(fmt.Sprintf("%5.1f%%", percent))
-}
-
-func statusDot(percent float64) string {
-	col := lipgloss.Color("#22C55E")
+	col := accent
 	if percent > 80 {
 		col = lipgloss.Color("#EF4444")
 	} else if percent > 60 {
 		col = lipgloss.Color("#EAB308")
 	}
-	return lipgloss.NewStyle().Foreground(col).Render("●")
+
+	return lipgloss.NewStyle().Foreground(col).Render("[" + bar + "] ") +
+		lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("%5.1f%%", percent))
 }
 
-// ====================== Main View ======================
+func statusDot(p float64) string {
+	c := lipgloss.Color("#22C55E")
+	if p > 80 {
+		c = lipgloss.Color("#EF4444")
+	} else if p > 60 {
+		c = lipgloss.Color("#EAB308")
+	}
+	return lipgloss.NewStyle().Foreground(c).Render("●")
+}
 
 func (m model) View() tea.View {
-	// Safe calculations
-	tempPercent := (m.temp / m.maxTemp) * 100
-	powerPercent := 0.0
-	if m.powerLimit > 0 {
-		powerPercent = (m.power / m.powerLimit) * 100
-	}
-	utilPercent := m.util
-	memPercent := 0.0
-	if m.memTotal > 0 {
-		memPercent = (m.memUsed / m.memTotal) * 100
-	}
-	fanPercent := m.fanSpeed
-
-	usedGB := m.memUsed / 1024
-	totalGB := m.memTotal / 1024
-	if totalGB == 0 {
-		totalGB = 1
-	}
-
-	barWidth := m.width - 18
-	if barWidth < 30 {
-		barWidth = 30
-	}
-
 	styles := getStyles(m)
+	barWidth := m.width - 22
+	if barWidth < 40 {
+		barWidth = 40
+	}
+
+	tempP := (m.temp / m.maxTemp) * 100
+	powerP := 0.0
+	if m.powerLimit > 0 {
+		powerP = (m.power / m.powerLimit) * 100
+	}
+	memP := 0.0
+	if m.memTotal > 0 {
+		memP = (m.memUsed / m.memTotal) * 100
+	}
+
+	// ... (the rest of the View function stays exactly the same as before)
 
 	tempCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Temperature"), statusDot(tempPercent)),
+		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Temperature"), statusDot(tempP)),
 		styles.value.Render(fmt.Sprintf("%.0f °C", m.temp)),
-		progressBar(barWidth, tempPercent, styles.accent),
+		progressBar(barWidth, tempP, styles.accent),
 	))
 
 	utilCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Utilization"), statusDot(utilPercent)),
+		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Utilization"), statusDot(m.util)),
 		styles.value.Render(fmt.Sprintf("%.0f %%", m.util)),
-		progressBar(barWidth, utilPercent, styles.accent),
+		progressBar(barWidth, m.util, styles.accent),
 	))
 
 	powerCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
 		styles.label.Render("Power Draw"),
-		styles.value.Render(fmt.Sprintf("%.2f / %.0f W", m.power, m.powerLimit)),
-		progressBar(barWidth, powerPercent, styles.accent),
+		styles.value.Render(fmt.Sprintf("%.1f / %.0f W", m.power, m.powerLimit)),
+		progressBar(barWidth, powerP, styles.accent),
 	))
 
 	memCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
 		styles.label.Render("Memory"),
-		styles.value.Render(fmt.Sprintf("%.1f / %.0f GB", usedGB, totalGB)),
-		progressBar(barWidth, memPercent, styles.accent),
+		styles.value.Render(fmt.Sprintf("%.1f / %.0f GB", m.memUsed/1024, m.memTotal/1024)),
+		progressBar(barWidth, memP, styles.accent),
 	))
 
 	fanCard := styles.card.Render(lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Fan Speed"), statusDot(fanPercent)),
+		lipgloss.JoinHorizontal(lipgloss.Left, styles.label.Render("Fan Speed"), statusDot(m.fanSpeed)),
 		styles.value.Render(fmt.Sprintf("%.0f %%", m.fanSpeed)),
-		progressBar(barWidth, fanPercent, styles.accent),
+		progressBar(barWidth, m.fanSpeed, styles.accent),
+		helpStyle.Render("  Press f to open fan control"),
 	))
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Width(m.width).AlignHorizontal(lipgloss.Center).Render(" RTX Monitor "),
 		gpuNameStyle.Render("  "+m.name),
 		"",
-
 		tempCard,
 		utilCard,
 		powerCard,
 		memCard,
 		fanCard,
-
 		"",
 	)
 
@@ -353,10 +472,47 @@ func (m model) View() tea.View {
 	}
 
 	content = lipgloss.JoinVertical(lipgloss.Left, content,
-		helpStyle.Render("  Press q to quit • Updates every second"),
+		helpStyle.Render("  q: quit • f: fan control"),
 	)
+
+	if m.showFanModal {
+		modalContent := lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4")).Render("   Fan Speed Control"),
+			"",
+			styles.value.Render(fmt.Sprintf("Current: %.0f%%     Target: %.0f%%", m.fanSpeed, m.targetFan)),
+			"",
+			progressBar(60, m.targetFan, styles.accent),
+			"",
+			helpStyle.Render("   Click / drag bar to set speed"),
+			helpStyle.Render("   +/- or ← → : fine adjust     a : Restore Automatic"),
+			helpStyle.Render("   Esc or q : close"),
+		)
+
+		modal := modalStyle.Render(modalContent)
+		centered := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+
+		v := tea.NewView(centered)
+		v.AltScreen = true
+		v.MouseMode = tea.MouseModeCellMotion
+		return v
+	}
 
 	v := tea.NewView(content)
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
