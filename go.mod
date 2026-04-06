@@ -6,6 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/NVIDIA/go-nvml v0.13.0-1
+	github.com/pelletier/go-toml/v2 v2.3.0
 )
 
 require (
