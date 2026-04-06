@@ -42,41 +42,6 @@ func Shutdown() {
 	}
 }
 
-func SetFanSpeed(percent int) error {
-	if !nvmlInitialized {
-		return fmt.Errorf("NVML not initialized")
-	}
-
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
-
-	applied := false
-	for fan := range 3 {
-		if ret := device.SetFanSpeed_v2(fan, percent); ret == nvml.SUCCESS {
-			applied = true
-		}
-	}
-
-	if !applied {
-		return fmt.Errorf("failed to set any fan")
-	}
-	return nil
-}
-
-func RestoreAutoFan() error {
-	if !nvmlInitialized {
-		return fmt.Errorf("NVML not initialized")
-	}
-	for fan := range 3 {
-		_ = device.SetDefaultFanSpeed_v2(fan)
-	}
-	return nil
-}
-
 func GetAllMetrics() (Metrics, error) {
 	if !nvmlInitialized {
 		return Metrics{}, fmt.Errorf("NVML not initialized")

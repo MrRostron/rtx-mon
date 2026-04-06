@@ -24,8 +24,6 @@ type Model struct {
 	MemTotal   float64
 	MemUsed    float64
 	FanSpeed   float64
-	FanManual  bool
-	TargetFan  float64
 
 	Width     int
 	Height    int
@@ -61,8 +59,6 @@ func InitialModel() Model {
 		MemTotal:   data.MemTotal,
 		MemUsed:    data.MemUsed,
 		FanSpeed:   data.FanSpeed,
-		TargetFan:  data.FanSpeed,
-		FanManual:  false,
 		Width:      cfg.Width,
 		IsDark:     lipgloss.HasDarkBackground(os.Stdin, os.Stdout),
 		LastError:  lastErr,
@@ -97,55 +93,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.LastError = "Failed to reload config: " + err.Error()
 			}
 			return m, nil
-
-		case "f", "F":
-			if m.Config.Fan.Enabled {
-				m.ShowFanModal = true
-				m.FanManual = true
-				if m.TargetFan == 0 {
-					m.TargetFan = m.FanSpeed
-				}
-			}
-
-		case "a", "A":
-			if m.ShowFanModal {
-				if err := gpu.RestoreAutoFan(); err != nil {
-					m.LastError = "Restore auto failed: " + err.Error()
-				} else {
-					m.FanManual = false
-					m.ShowFanModal = false
-					m.LastError = "Fan restored to automatic"
-				}
-			}
-
-		case "+", "=":
-			if m.FanManual {
-				m.TargetFan = min(100, m.TargetFan+5)
-				_ = gpu.SetFanSpeed(int(m.TargetFan))
-			}
-
-		case "-":
-			if m.FanManual {
-				m.TargetFan = max(0, m.TargetFan-5)
-				_ = gpu.SetFanSpeed(int(m.TargetFan))
-			}
-
-		case "left", "h":
-			if m.FanManual && m.ShowFanModal {
-				m.TargetFan = max(0, m.TargetFan-2)
-				_ = gpu.SetFanSpeed(int(m.TargetFan))
-			}
-
-		case "right", "l":
-			if m.FanManual && m.ShowFanModal {
-				m.TargetFan = min(100, m.TargetFan+2)
-				_ = gpu.SetFanSpeed(int(m.TargetFan))
-			}
-
-		case "esc":
-			if m.ShowFanModal {
-				m.ShowFanModal = false
-			}
 		}
 
 	case updateMsg:
@@ -160,10 +107,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.FanSpeed = newData.FanSpeed
 		} else {
 			m.LastError = "Failed to read GPU data"
-		}
-
-		if m.FanManual {
-			_ = gpu.SetFanSpeed(int(m.TargetFan))
 		}
 
 		return m, tea.Tick(time.Duration(m.Config.General.UpdateIntervalMs)*time.Millisecond,
@@ -246,7 +189,6 @@ func (m Model) View() tea.View {
 			lipgloss.JoinHorizontal(lipgloss.Left, styles.Label.Render("Fan Speed"), StatusDot(m.FanSpeed, styles.High, styles.Medium)),
 			styles.Value.Render(fmt.Sprintf("%.0f %%", m.FanSpeed)),
 			ProgressBar(barWidth, m.FanSpeed, styles.Accent, styles.High, styles.Medium),
-			helpStyle.Render("  Press f to open fan control"),
 		))
 		content = lipgloss.JoinVertical(lipgloss.Left, content, fanCard)
 	}
@@ -258,46 +200,11 @@ func (m Model) View() tea.View {
 	}
 
 	content = lipgloss.JoinVertical(lipgloss.Left, content,
-		helpStyle.Render("  q: quit • r: reload config • f: fan control"),
+		helpStyle.Render("  q: quit • r: reload config"),
 	)
 
-	if m.ShowFanModal && m.Config.Fan.Enabled {
-		modalContent := lipgloss.JoinVertical(lipgloss.Left,
-			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.Config.Colors.Accent)).Render("   Fan Speed Control"),
-			"",
-			styles.Value.Render(fmt.Sprintf("Current: %.0f%%     Target: %.0f%%", m.FanSpeed, m.TargetFan)),
-			"",
-			ProgressBar(60, m.TargetFan, styles.Accent, styles.High, styles.Medium),
-			"",
-			helpStyle.Render("   +/- or ← → : fine adjust     a : Restore Automatic"),
-			helpStyle.Render("   Esc or q : close"),
-		)
 
-		modal := modalStyle.Render(modalContent)
-		centered := lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, modal)
 
-		v := tea.NewView(centered)
-		v.AltScreen = true
-		return v
+		return tea.NewView(content)
 	}
 
-	v := tea.NewView(content)
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	return v
-}
-
-// Helper functions
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}
