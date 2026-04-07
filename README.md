@@ -1,24 +1,29 @@
 # RTX-MON
 
-A clean, lightweight, and modern **Terminal User Interface (TUI)** for real-time NVIDIA RTX GPU monitoring on Linux.
+A clean, lightweight, and highly customizable **Terminal User Interface (TUI)** for real-time NVIDIA RTX GPU monitoring on Linux.
 
-Built with **Go**, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) and [Lipgloss v2](https://github.com/charmbracelet/lipgloss), using official **NVIDIA NVML** bindings for fast and reliable data.
+Built with **Go**, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) and [Lipgloss v2](https://github.com/charmbracelet/lipgloss), using the official **NVIDIA NVML** library for fast and accurate metrics.
 
-<img width="1092" height="1568" alt="2026-04-05-161041_hyprshot" src="https://github.com/user-attachments/assets/fb17e947-4ec7-4e7e-8525-e6ffcc020386" />
+![RTX-MON Screenshot](https://github.com/user-attachments/assets/fb17e947-4ec7-4e7e-8525-e6ffcc020386)
 
 ## Features
 
-- Real-time GPU metrics updated every second
-- Clean card-based UI with progress bars and status indicators
+- Real-time GPU monitoring with configurable refresh rate
+- Beautiful card-based layout with color-coded progress bars and status indicators
+- Fully customizable via `config.toml` (colors, layout, visibility, temperature unit, etc.)
+- Live config reloading (`r` key)
 - Automatic dark/light mode detection
-- Shows:
-  - GPU Name
-  - Temperature (°C) with color-coded status
-  - Power Draw + Power Limit (W)
-  - GPU Utilization (%)
-  - Memory Usage (GB)
-  - Fan Speed (%)
+- Graceful error handling and NVML resource management
+- Supports Celsius or Fahrenheit
 - Very lightweight and responsive
+
+### Displayed Metrics
+- GPU Name
+- Temperature (with color-coded status)
+- Power Draw + Power Limit (Watts)
+- GPU Utilization (%)
+- VRAM Usage (GB)
+- Fan Speed (%)
 
 ## Screenshots
 
@@ -56,6 +61,21 @@ Simply run the binary:
 ```bash
 rtx-mon
 ```
+
+## Configuration
+On first run, rtx-mon automatically creates a config file at:
+```bash
+~/.config/rtx-mon/config.toml
+```
+You can customize:
+
+*Title, width, update interval
+*Which metrics to show/hide
+*Temperature unit (°C or °F)
+*Border style, card padding/height
+*Full color theme (accent, title, high/medium thresholds, etc.)
+After editing, press r in the app to apply changes instantly.
+
 ## Roadmap
 
 ### Planned Features
@@ -67,7 +87,6 @@ rtx-mon
 - [ ] **Per-process GPU usage** — Show which processes are using the GPU (memory + compute)
 - [ ] **Help screen** — Press `?` to show all keyboard shortcuts
 - [ ] **Better memory display** — Option for GB or MB
-- [ ] **Fan curve / manual fan control** (advanced)
 - [ ] **Export metrics** — Log data to CSV/JSON for analysis
 
 ### Future Ideas

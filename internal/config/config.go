@@ -1,3 +1,6 @@
+// Package config handles loading and management of the application's configuration.
+// It uses TOML format and automatically creates a default config file on first run
+// in the user's config directory (~/.config/rtx-mon/config.toml).
 package config
 
 import (
@@ -8,13 +11,15 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// Config represents the complete user-configurable settings for rtx-mon.
+// All fields are tagged for TOML serialization and support live reloading.
 type Config struct {
-	Title string `toml:"title"`
-	Width int    `toml:"width"`
+	Title string `toml:"title"` // Title displayed at the top of the UI
+	Width int    `toml:"width"` // Target terminal width for layout calculations
 
 	General struct {
-		UpdateIntervalMs int    `toml:"update_interval_ms"`
-		TempUnit         string `toml:"temp_unit"` // "C" or "F"
+		UpdateIntervalMs int    `toml:"update_interval_ms"` // Refresh rate in milliseconds
+		TempUnit         string `toml:"temp_unit"`          // "C" or "F"
 		ShowTemp         bool   `toml:"show_temp"`
 		ShowUtil         bool   `toml:"show_util"`
 		ShowPower        bool   `toml:"show_power"`
@@ -25,7 +30,7 @@ type Config struct {
 	Appearance struct {
 		BorderStyle string `toml:"border_style"` // "rounded", "double", "single", "none"
 		CardPadding int    `toml:"card_padding"`
-		CardHeight  int    `toml:"card_height"`
+		CardHeight  int    `toml:"card_height"` // 0 = auto, positive value = fixed height
 	} `toml:"appearance"`
 
 	Colors struct {
@@ -36,8 +41,8 @@ type Config struct {
 		Label   string `toml:"label"`
 		Error   string `toml:"error"`
 		Border  string `toml:"border"`
-		High    string `toml:"high"`   // >80%
-		Medium  string `toml:"medium"` // 60-80%
+		High    string `toml:"high"`   // Used for >80% values (critical)
+		Medium  string `toml:"medium"` // Used for 60-80% values (warning)
 	} `toml:"colors"`
 
 	Fan struct {
@@ -46,8 +51,10 @@ type Config struct {
 	} `toml:"fan"`
 }
 
-const defaultConfig = `# RTX Monitor
-# Edit freely and press 'r' in the app for live reload
+// defaultConfig is the embedded default configuration that gets written
+// to disk the first time the application runs.
+const defaultConfig = `# RTX Monitor - Default Configuration
+# You can edit this file freely. Press 'r' in the app to reload live.
 
 title = "RTX Monitor"
 width = 94
@@ -68,51 +75,60 @@ card_padding = 1
 card_height  = 0           # 0 = auto (content-based). Set to 5-8 for fixed taller cards
 
 [colors]
-accent   = "#C4A7E7"   # main highlight (soft purple for catppuccin/mocha vibes)
+accent   = "#C4A7E7"   # main highlight (soft purple)
 title_bg = "#7D56F4"
 title_fg = "#FAFAFA"
 text     = "#E0DEF4"
 label    = "#908CAA"
 error    = "#EB6F92"
 border   = "#524F67"
-high     = "#EB6F92"   # critical (red/pink)
-medium   = "#F6C177"   # warning (yellow)
+high     = "#EB6F92"   # critical (>80%)
+medium   = "#F6C177"   # warning (60-80%)
 
 [fan]
 enabled        = false
 default_target = 45
 `
 
+// Load reads the configuration from disk, creating the default file if it doesn't exist.
+// It also applies sensible fallback defaults for any missing or invalid values.
 func Load() (Config, error) {
+	// Get the user's configuration directory (usually ~/.config on Linux/macOS)
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return Config{}, err
 	}
 
+	// Build full path: ~/.config/rtx-mon/config.toml
 	configPath := filepath.Join(configDir, "rtx-mon", "config.toml")
 
+	// If config file doesn't exist, create directory and write default config
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 			return Config{}, err
 		}
+
 		if err := os.WriteFile(configPath, []byte(defaultConfig), 0o644); err != nil {
 			return Config{}, err
 		}
-		fmt.Printf("✅ Created config at ~/.config/rtx-mon/config.toml\n")
+
+		fmt.Printf("✅ Created default config at ~/.config/rtx-mon/config.toml\n")
 		fmt.Println("  Customize it and press 'r' in rtx-mon for live reload!")
 	}
 
+	// Read the config file
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return Config{}, err
 	}
 
+	// Parse TOML into Config struct
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("invalid TOML: %w", err)
 	}
 
-	// Sensible defaults
+	// Apply sensible defaults for critical values
 	if cfg.Width < 60 {
 		cfg.Width = 94
 	}
