@@ -34,9 +34,6 @@ type Model struct {
 	Height    int
 	IsDark    bool
 	LastError string
-
-	// Modal state
-	ShowFanModal bool
 }
 
 // InitialModel creates and returns the initial application state.
@@ -99,7 +96,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+c", "q", "Q":
 			// Quit the application
-					return m, tea.Quit
+			return m, tea.Quit
 
 		case "r", "R":
 			// Reload configuration on demand
@@ -232,16 +229,20 @@ func (m Model) View() tea.View {
 	content = lipgloss.JoinVertical(lipgloss.Left, content, "")
 
 	// Show error message if present
-	if m.LastError != "" {
-		content = lipgloss.JoinVertical(lipgloss.Left, content,
-			errorStyleBase.Render("  ⚠ "+m.LastError),
-		)
+	if m.Config.General.ShowError {
+		if m.LastError != "" {
+			content = lipgloss.JoinVertical(lipgloss.Left, content,
+				errorStyleBase.Render("  ⚠ "+m.LastError),
+			)
+		}
 	}
 
 	// Help text at the bottom
-	content = lipgloss.JoinVertical(lipgloss.Left, content,
-		helpStyle.Render("  q: quit • r: reload config"),
-	)
+	if m.Config.General.ShowHelp {
+		content = lipgloss.JoinVertical(lipgloss.Left, content,
+			helpStyle.Render("  q: quit • r: reload config"),
+		)
+	}
 
 	return tea.NewView(content)
 }

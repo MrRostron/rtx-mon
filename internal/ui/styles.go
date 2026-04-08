@@ -24,13 +24,6 @@ var (
 			Foreground(lipgloss.Color("#EF4444")).
 			Bold(true)
 
-	// modalStyle defines the appearance of any future modal dialogs (currently used for fan control)
-	modalStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
-			Padding(2, 4).
-			Width(72)
-
 	// gpuNameStyle styles the GPU model name displayed below the title
 	gpuNameStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#A0A0A0")).

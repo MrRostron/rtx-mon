@@ -25,6 +25,8 @@ type Config struct {
 		ShowPower        bool   `toml:"show_power"`
 		ShowMemory       bool   `toml:"show_memory"`
 		ShowFan          bool   `toml:"show_fan"`
+		ShowError        bool   `toml:"show_error"`
+		ShowHelp         bool   `toml:"show_help"`
 	} `toml:"general"`
 
 	Appearance struct {
@@ -68,7 +70,8 @@ show_util   = true
 show_power  = true
 show_memory = true
 show_fan    = true
-
+show_error  = false
+show_help  = false
 [appearance]
 border_style = "rounded"   # rounded | double | single | none
 card_padding = 1
